@@ -20,6 +20,7 @@ from finance.forecast_models import (
     ForecastResult,
     DailyForecast,
     PendingDebitPolicy,
+    RecurrenceOverride,
     RecurrenceProvenance,
     SalaryProjectionMode,
     SameDayPriority,
@@ -343,11 +344,45 @@ def _pending_debit_entries(
     return entries
 
 
+def override_for_series(
+    series: RecurringSeriesCandidate,
+    overrides: tuple[RecurrenceOverride, ...],
+) -> RecurrenceOverride | None:
+    """Match an override to a series by any event id in that series."""
+    if not overrides:
+        return None
+    ids = set(series.event_ids)
+    for item in overrides:
+        if item.event_id in ids:
+            return item
+    return None
+
+
+def override_for_event(
+    event: NormalizedCashEvent,
+    series_list: tuple[RecurringSeriesCandidate, ...],
+    overrides: tuple[RecurrenceOverride, ...],
+) -> RecurrenceOverride | None:
+    if not overrides:
+        return None
+    for series in series_list:
+        if event.source_event_id in series.event_ids:
+            found = override_for_series(series, overrides)
+            if found is not None:
+                return found
+        if event_series_key(event) == series_key(series):
+            found = override_for_series(series, overrides)
+            if found is not None:
+                return found
+    return None
+
+
 def _scheduled_debit_entries(
     state: NormalizedFinancialState,
     horizon_start: date,
     horizon_end: date,
     unresolved: list[str],
+    overrides: tuple[RecurrenceOverride, ...] = (),
 ) -> list[ForecastCashEvent]:
     entries: list[ForecastCashEvent] = []
     for event in state.scheduled_debits:
@@ -365,12 +400,20 @@ def _scheduled_debit_entries(
                 "and cannot be treated as zero"
             )
             continue
+        amount = event.amount_home_currency
+        override = override_for_event(
+            event, state.recurring_series_candidates, overrides
+        )
+        if override is not None:
+            if override.new_amount is None:
+                continue
+            amount = override.new_amount
         entries.append(
             ForecastCashEvent(
                 date=cash_date,
-                amount_home_currency=event.amount_home_currency,
+                amount_home_currency=amount,
                 direction=EventDirection.DEBIT,
-                signed_amount=_signed(EventDirection.DEBIT, event.amount_home_currency),
+                signed_amount=_signed(EventDirection.DEBIT, amount),
                 kind=ForecastEventKind.SCHEDULED_DEBIT,
                 source=ForecastEventSource.EXPLICIT_EVENT,
                 source_event_id=event.source_event_id,
@@ -567,6 +610,7 @@ def _generated_entries(
     occupied: tuple[NormalizedCashEvent, ...],
     unresolved: list[str],
     message_flags: list[str],
+    overrides: tuple[RecurrenceOverride, ...] = (),
 ) -> list[ForecastCashEvent]:
     entries: list[ForecastCashEvent] = []
     payday = next(
@@ -576,6 +620,13 @@ def _generated_entries(
     salary_index_by_key: dict[str, int] = {}
     for series in state.recurring_series_candidates:
         is_salary = _is_salary_series(series)
+        debit_override = (
+            override_for_series(series, overrides)
+            if series.direction is EventDirection.DEBIT
+            else None
+        )
+        if debit_override is not None and debit_override.new_amount is None:
+            continue
         if is_salary:
             eligible, income_confidence, _reason = salary_generation_allowed(
                 series,
@@ -594,6 +645,8 @@ def _generated_entries(
         if not series.observed_dates:
             continue
         amount = _projected_amount(series, config)
+        if debit_override is not None and debit_override.new_amount is not None:
+            amount = debit_override.new_amount
         if amount is None:
             unresolved.append(
                 f"recurring series {series_key(series)} has no usable amount "
@@ -894,6 +947,7 @@ def forecast_financial_state(
     strategy_config: ForecastConfig | None = None,
     *,
     candidate_payments: tuple[ForecastCashEvent, ...] = (),
+    recurrence_overrides: tuple[RecurrenceOverride, ...] = (),
 ) -> ForecastResult:
     """Simulate cash from request_date through request_date + horizon_days.
 
@@ -902,6 +956,11 @@ def forecast_financial_state(
 
     `candidate_payments` is an extension point for Phase 4. Phase 3 never
     creates candidate payments; callers may inject them only in tests.
+
+    `recurrence_overrides` apply only to future expense recurrences and
+    matching future scheduled debits. Pending authorized debits and
+    category-level essential reserves are unchanged. The baseline state is
+    not mutated.
     """
     config = strategy_config or ForecastConfig()
     state = normalized_state
@@ -913,7 +972,9 @@ def forecast_financial_state(
     entries: list[ForecastCashEvent] = []
     entries.extend(_pending_debit_entries(state, config, horizon_start, unresolved))
     entries.extend(
-        _scheduled_debit_entries(state, horizon_start, horizon_end, unresolved)
+        _scheduled_debit_entries(
+            state, horizon_start, horizon_end, unresolved, recurrence_overrides
+        )
     )
     entries.extend(
         _confirmed_credit_entries(state, horizon_start, horizon_end, unresolved)
@@ -929,6 +990,7 @@ def forecast_financial_state(
             occupied,
             unresolved,
             message_flags,
+            recurrence_overrides,
         )
     )
     entries.extend(_adjustment_entries(state, horizon_start, horizon_end, entries, config))

@@ -60,7 +60,11 @@ def candidate_payment(
     request: FinanceRequest,
     payment_date: date,
     amount: Decimal,
+    *,
+    index: int | None = None,
 ) -> ForecastCashEvent:
+    suffix = "" if index is None else f":{index:04d}"
+    key = f"candidate:{request.request_id}{suffix}"
     return ForecastCashEvent(
         date=payment_date,
         amount_home_currency=amount,
@@ -68,12 +72,23 @@ def candidate_payment(
         signed_amount=-amount,
         kind=ForecastEventKind.CANDIDATE_PAYMENT,
         source=ForecastEventSource.CANDIDATE,
-        source_event_id=f"candidate:{request.request_id}",
+        source_event_id=key,
         source_series_key=None,
         is_generated_recurrence=False,
         priority=SameDayPriority.CANDIDATE_PAYMENT,
         description=f"candidate payment {request.request_id}",
-        order_key=f"candidate:{request.request_id}",
+        order_key=key,
+    )
+
+
+def candidate_schedule(
+    request: FinanceRequest,
+    payments: tuple[tuple[date, Decimal], ...],
+) -> tuple[ForecastCashEvent, ...]:
+    """One uniquely keyed candidate debit per scheduled payment date/amount."""
+    return tuple(
+        candidate_payment(request, when, amount, index=index)
+        for index, (when, amount) in enumerate(payments)
     )
 
 

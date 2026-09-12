@@ -92,6 +92,14 @@ class ForecastEventSource(str, Enum):
 
 
 @dataclass(frozen=True)
+class RecurrenceOverride:
+    """Counterfactual change to one recurring expense series. None amount = stop."""
+
+    event_id: str
+    new_amount: Decimal | None
+
+
+@dataclass(frozen=True)
 class ForecastConfig:
     """Small set of forecast assumptions that later phases can vary."""
 
