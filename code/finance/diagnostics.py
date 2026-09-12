@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from finance.forecast_models import ForecastResult
 from finance.models import NormalizedFinancialState
 
 
@@ -122,4 +123,69 @@ def format_financial_state_diagnostics(
     if state.flexibility_inconsistencies:
         lines.append("Flexibility inconsistencies:")
         lines.extend(f"  {item}" for item in state.flexibility_inconsistencies)
+    return "\n".join(lines)
+
+
+def format_forecast_diagnostics(result: ForecastResult) -> str:
+    """Print only days that have cash events."""
+    lines = [
+        f"Forecast for {result.request_id}",
+        "",
+        f"Opening balance: {result.opening_balance}",
+        f"Minimum balance: {result.minimum_balance_to_keep}",
+        f"Horizon: {result.horizon_start.isoformat()} through {result.horizon_end.isoformat()} (inclusive)",
+        "",
+    ]
+    if not result.daily_forecasts:
+        lines.append("No forecast cash events in the horizon.")
+        lines.append("")
+    for day in result.daily_forecasts:
+        lines.append(day.date.isoformat())
+        for entry, balance in zip(day.entries, day.running_balances):
+            sign = "+" if entry.signed_amount >= 0 else "-"
+            lines.append(f"{sign}{entry.amount_home_currency} {entry.description}")
+            lines.append(f"balance: {balance}")
+        lines.append("")
+
+    lines.append(f"Minimum observed balance: {result.minimum_observed_balance}")
+    if result.is_safe:
+        lines.append("Minimum violation: no")
+    else:
+        entry = result.first_violation_entry
+        detail = (
+            f"{result.first_violation_date.isoformat()} ({entry.description})"
+            if result.first_violation_date and entry is not None
+            else (
+                result.first_violation_date.isoformat()
+                if result.first_violation_date
+                else "yes"
+            )
+        )
+        lines.append(f"Minimum violation: {detail}")
+
+    lines.append("")
+    lines.append("Generated recurrence:")
+    if result.generated_recurrence_summaries:
+        lines.extend(f"  {item}" for item in result.generated_recurrence_summaries)
+    else:
+        lines.append("  none")
+
+    lines.append("")
+    lines.append("Ignored:")
+    if result.ignored_summaries:
+        lines.extend(f"  {item}" for item in result.ignored_summaries)
+    else:
+        lines.append("  none")
+
+    lines.append("")
+    lines.append("Unresolved:")
+    if result.unresolved_reasons:
+        lines.extend(f"  {item}" for item in result.unresolved_reasons)
+    else:
+        lines.append("  none")
+
+    if result.message_uncertainty_flags:
+        lines.append("")
+        lines.append("Message uncertainty (not interpreted):")
+        lines.extend(f"  {item}" for item in result.message_uncertainty_flags)
     return "\n".join(lines)

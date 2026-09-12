@@ -13,7 +13,9 @@ if str(CODE_DIR) not in sys.path:
 from data.loader import load_dataset
 from data.repository import DatasetRepository
 from data.validation import DatasetValidationError, validate_dataset
-from finance.diagnostics import format_financial_state_diagnostics
+from finance.diagnostics import format_financial_state_diagnostics, format_forecast_diagnostics
+from finance.forecast import forecast_financial_state
+from finance.forecast_models import ForecastConfig
 from finance.normalization import finance_request_by_id, normalize_financial_state
 
 
@@ -23,6 +25,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--debug-request",
         metavar="REQUEST_ID",
         help="Print Phase 2 normalization diagnostics for one request. Does not write output.csv.",
+    )
+    parser.add_argument(
+        "--forecast",
+        action="store_true",
+        help="Print Phase 3 90-day forecast diagnostics. Requires --debug-request.",
     )
     return parser.parse_args(argv)
 
@@ -53,6 +60,10 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print("Structural validation: PASS")
 
+    if args.forecast and not args.debug_request:
+        print("--forecast requires --debug-request REQUEST_ID", file=sys.stderr)
+        return 2
+
     if args.debug_request:
         try:
             request = finance_request_by_id(repository, args.debug_request)
@@ -62,6 +73,14 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print()
         print(format_financial_state_diagnostics(state))
+        if args.forecast:
+            try:
+                result = forecast_financial_state(state, ForecastConfig())
+            except Exception as exc:  # noqa: BLE001
+                print(f"forecast failed: {exc}", file=sys.stderr)
+                return 1
+            print()
+            print(format_forecast_diagnostics(result))
     return 0
 
 
