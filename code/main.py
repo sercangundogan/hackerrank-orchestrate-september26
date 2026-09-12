@@ -1,7 +1,8 @@
-"""Phase 1 smoke entry point: load, validate, and summarize the dataset."""
+"""Smoke entry point: load, validate, and optionally debug-normalize one request."""
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -12,13 +13,26 @@ if str(CODE_DIR) not in sys.path:
 from data.loader import load_dataset
 from data.repository import DatasetRepository
 from data.validation import DatasetValidationError, validate_dataset
+from finance.diagnostics import format_financial_state_diagnostics
+from finance.normalization import finance_request_by_id, normalize_financial_state
 
 
-def main() -> int:
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Buy or Wait? dataset smoke runner")
+    parser.add_argument(
+        "--debug-request",
+        metavar="REQUEST_ID",
+        help="Print Phase 2 normalization diagnostics for one request. Does not write output.csv.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     try:
         dataset = load_dataset()
         validate_dataset(dataset)
-        DatasetRepository(dataset)
+        repository = DatasetRepository(dataset)
     except DatasetValidationError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -38,6 +52,16 @@ def main() -> int:
     print(f"Exchange rates: {len(dataset.exchange_rates)}")
     print()
     print("Structural validation: PASS")
+
+    if args.debug_request:
+        try:
+            request = finance_request_by_id(repository, args.debug_request)
+            state = normalize_financial_state(repository, request)
+        except Exception as exc:  # noqa: BLE001
+            print(f"normalization failed: {exc}", file=sys.stderr)
+            return 1
+        print()
+        print(format_financial_state_diagnostics(state))
     return 0
 
 
