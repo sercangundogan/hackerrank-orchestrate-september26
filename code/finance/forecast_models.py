@@ -34,6 +34,16 @@ class VariableAmountStrategy(str, Enum):
     RECENT_MAX = "recent_max"
 
 
+class EssentialSpendStrategy(str, Enum):
+    """How category-level residual essential spend is projected."""
+
+    DAILY_RATE = "daily_rate"
+    WEEKLY_MEDIAN = "weekly_median"
+    WEEKLY_MAX = "weekly_max"
+    MONTHLY_MAX = "monthly_max"
+    HYBRID = "hybrid"
+
+
 class SalaryProjectionMode(str, Enum):
     """How future salary occurrences are chosen.
 
@@ -64,6 +74,7 @@ class ForecastEventKind(str, Enum):
     SCHEDULED_DEBIT = "scheduled_debit"
     GENERATED_RECURRING_CREDIT = "generated_recurring_credit"
     GENERATED_RECURRING_DEBIT = "generated_recurring_debit"
+    ESSENTIAL_SPEND_RESERVE = "essential_spend_reserve"
     CANDIDATE_PAYMENT = "candidate_payment"
 
 
@@ -71,6 +82,7 @@ class ForecastEventSource(str, Enum):
     EXPLICIT_EVENT = "explicit_event"
     RESERVED_PENDING = "reserved_pending"
     GENERATED_RECURRENCE = "generated_recurrence"
+    CATEGORY_RESERVE = "category_reserve"
     CANDIDATE = "candidate"
 
 
@@ -87,6 +99,10 @@ class ForecastConfig:
     salary_projection_mode: SalaryProjectionMode = (
         SalaryProjectionMode.SCHEDULED_PLUS_REGULAR_HISTORY
     )
+    essential_spend_enabled: bool = True
+    essential_spend_strategy: EssentialSpendStrategy = EssentialSpendStrategy.DAILY_RATE
+    essential_lookback_days: int = 90
+    extra_essential_categories: frozenset[str] = frozenset()
 
     def horizon_end(self, request_date: date) -> date:
         """Inclusive end date: request_date through request_date + horizon_days."""

@@ -15,7 +15,8 @@ from data.repository import DatasetRepository
 from decision.capacity import compute_capacity
 from evidence.cache import EvidenceCache
 from evidence.pipeline import resolve_request_state
-from finance.forecast_models import ForecastConfig, VariableAmountStrategy
+from finance.essential_spending import forecast_config_from_profiles
+from finance.forecast_models import EssentialSpendStrategy, ForecastConfig, VariableAmountStrategy
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,10 @@ def evaluate_sample_capacity(
     repository: DatasetRepository,
     config: ForecastConfig | None = None,
 ) -> tuple[SampleCapacityRow, ...]:
-    strategy = config or ForecastConfig(strict_unresolved_amounts=True)
+    strategy = config or forecast_config_from_profiles(
+        repository.dataset.profiles,
+        strict_unresolved_amounts=True,
+    )
     cache = EvidenceCache()
     client = ModelClient(api_key="unused")
     rows: list[SampleCapacityRow] = []

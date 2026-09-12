@@ -34,6 +34,7 @@ from finance.models import (
     NormalizedFinancialState,
     RecurringSeriesCandidate,
 )
+from finance.essential_spending import essential_spend_entries
 from finance.recurrence import normalize_description
 
 _ZERO = Decimal("0")
@@ -543,6 +544,7 @@ def _generated_entries(
                     ForecastAdjustmentKind.SALARY_AMOUNT,
                     ForecastAdjustmentKind.START_SALARY,
                     ForecastAdjustmentKind.SALARY_TEMPORARY,
+                    ForecastAdjustmentKind.SALARY_PAYDAY,
                 }
                 for item in _adjustments(state)
             )
@@ -561,9 +563,11 @@ def _generated_entries(
             continue
         last_observed = max(series.observed_dates)
         pattern_day = last_observed.day
+        cadence = series.inferred_cadence
         if is_salary and payday is not None and payday.effective_date is not None:
             pattern_day = payday.effective_date.day
             last_observed = add_calendar_months(payday.effective_date, -1, pattern_day=pattern_day)
+            cadence = Cadence.MONTHLY
         key = series_key(series)
         if series.amount_behavior.value == "fixed" and series.representative_amount is not None:
             strategy_name = "fixed"
@@ -590,7 +594,7 @@ def _generated_entries(
         )
         for when in iter_recurrence_dates(
             last_observed=last_observed,
-            cadence=series.inferred_cadence,
+            cadence=cadence,
             horizon_start=horizon_start,
             horizon_end=horizon_end,
             pattern_day=pattern_day,
@@ -836,6 +840,7 @@ def forecast_financial_state(
         )
     )
     entries.extend(_adjustment_entries(state, horizon_start, horizon_end, entries))
+    entries.extend(essential_spend_entries(state, config, tuple(entries)))
 
     for candidate in candidate_payments:
         if candidate.priority is not SameDayPriority.CANDIDATE_PAYMENT:

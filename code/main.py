@@ -23,8 +23,8 @@ from finance.diagnostics import (
     format_financial_state_diagnostics,
     format_forecast_diagnostics,
 )
+from finance.essential_spending import forecast_config_from_profiles
 from finance.forecast import forecast_financial_state
-from finance.forecast_models import ForecastConfig
 from finance.normalization import finance_request_by_id, normalize_financial_state
 from usage.tracker import UsageTracker
 
@@ -98,6 +98,9 @@ def main(argv: list[str] | None = None) -> int:
     tracker = UsageTracker()
     cache = EvidenceCache()
     client = ModelClient(tracker=tracker)
+    forecast_config = forecast_config_from_profiles(
+        dataset.profiles, strict_unresolved_amounts=True
+    )
 
     if args.extract_evidence:
         request_ids = [item.request_id for item in dataset.evaluation_requests]
@@ -137,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
             print(format_evidence_diagnostics(bundle))
         if args.forecast:
             try:
-                result = forecast_financial_state(state, ForecastConfig())
+                result = forecast_financial_state(state, forecast_config)
             except Exception as exc:  # noqa: BLE001
                 print(f"forecast failed: {exc}", file=sys.stderr)
                 return 1
@@ -145,9 +148,7 @@ def main(argv: list[str] | None = None) -> int:
             print(format_forecast_diagnostics(result))
         if args.capacity:
             try:
-                capacity = compute_capacity(
-                    state, request, ForecastConfig(strict_unresolved_amounts=True)
-                )
+                capacity = compute_capacity(state, request, forecast_config)
             except Exception as exc:  # noqa: BLE001
                 print(f"capacity failed: {exc}", file=sys.stderr)
                 return 1
