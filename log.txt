@@ -223,3 +223,337 @@ branch=main
 repo_root=/Users/sercangundogan/Projects/hackerrank-orchestrate-september26
 worktree=/Users/sercangundogan/Projects/hackerrank-orchestrate-september26
 parent_agent=none
+
+## [2026-09-12T22:35:02Z] SESSION START
+
+tool=Cursor
+Repo Root: /Users/sercangundogan/Projects/hackerrank-orchestrate-september26
+Branch: main
+Worktree: /Users/sercangundogan/Projects/hackerrank-orchestrate-september26
+Parent Agent: none
+Language: py
+Time Remaining: 0d 13h 54m
+
+## [2026-09-12T22:38:26Z] Image evidence semantic sanity check
+
+User Prompt (verbatim, secrets redacted):
+The controlled image extraction run is approved, but before starting safe-payment capacity, add a small evidence sanity-validation layer.
+
+This is NOT a new decision phase.
+
+Do NOT implement safe amount, affordability, payment plans, ranking, spending changes, or output.csv.
+
+Before changes:
+
+1. Re-read `AGENTS.md`.
+2. Follow logging rules.
+3. Run all existing tests.
+4. Preserve dataset files.
+5. Never expose secrets.
+
+## Goal
+
+Prevent a high-confidence VLM response from being accepted blindly when its semantic interpretation conflicts with the related financial event.
+
+The current extraction run exposed an important example:
+
+* a grocery purchase (`image_03`) returned a plausible amount but `semantic_field_selected = net_pay`
+
+That semantic field does not make sense for a grocery transaction.
+
+Model confidence alone must not override domain consistency.
+
+---
+
+## 1. Semantic consistency validator
+
+Add a deterministic validator for image-extracted evidence.
+
+Validate compatibility among:
+
+* event_type
+* category
+* description
+* direction
+* semantic_field_selected
+
+Create a small set of general semantic families rather than image-specific rules.
+
+Examples:
+
+### Salary / payroll credit
+
+Compatible fields may include:
+
+* net_pay
+* salary_amount
+* net_salary
+* payable_salary
+
+Incompatible examples:
+
+* cash_tendered
+* change_due
+* invoice_subtotal
+
+### Grocery / retail purchase
+
+Compatible:
+
+* grand_total
+* total
+* amount_due
+* payable_amount
+* order_total
+
+Incompatible:
+
+* net_pay
+* gross_salary
+* cash_change
+
+### Rent / bill / utilities
+
+Compatible:
+
+* balance_due
+* amount_due
+* payable_amount
+* outstanding_balance
+* current_due
+
+### Taxi / transport fare
+
+Compatible:
+
+* fare_total
+* grand_total
+* amount_due
+
+Do not use:
+
+* cash_tendered
+* cash_received
+* change
+
+### Medical / pharmacy / restaurant / tickets
+
+Usually compatible:
+
+* grand_total
+* total
+* amount_due
+* payable_amount
+
+Do not overfit to current image IDs.
+
+---
+
+## 2. Validation result
+
+Represent evidence quality explicitly, for example:
+
+* valid
+* needs_review
+* invalid
+
+with:
+
+* validation_reason
+* semantic_consistency
+* extraction_confidence
+
+Do not mutate the raw VLM response.
+
+Preserve provenance.
+
+---
+
+## 3. Suspicious evidence
+
+Identify all 16 cached results that fail or partially fail semantic consistency.
+
+At minimum inspect:
+
+* grocery extraction returning `net_pay`
+* any amount where the selected semantic field contradicts the event
+
+Do not mark evidence suspicious merely because Phase 0 visually estimated a slightly different number.
+
+The deterministic validator should be based on semantics, not expected amounts.
+
+---
+
+## 4. Targeted verification
+
+For evidence marked `needs_review`, perform a SECOND, targeted VLM verification call only when needed.
+
+Do NOT rerun all 16 images.
+
+The verification prompt should include:
+
+* image
+* event metadata
+* first extraction
+* reason the first extraction is semantically inconsistent
+
+Ask:
+
+1. What financial field in the document represents this event?
+2. What is its exact monetary amount?
+3. What text/region supports it?
+4. Is the first extraction amount correct even if its semantic label was wrong?
+
+Require structured output.
+
+Do not tell the model an expected amount.
+
+---
+
+## 5. Amount disagreement policy
+
+If first extraction and verification disagree materially:
+
+* do not automatically pick the larger or smaller value
+* retain both candidates
+* mark unresolved unless one interpretation has clearly stronger document semantics
+
+If they differ only due to formatting/trailing decimals, normalize with Decimal carefully.
+
+No silent rounding.
+
+---
+
+## 6. Confidence policy
+
+Do not let `confidence=high` bypass deterministic validation.
+
+Final resolved evidence requires:
+
+* valid schema
+* event ID match
+* valid currency
+* semantically compatible selected field
+
+or:
+
+* successful targeted verification resolving the inconsistency
+
+---
+
+## 7. Existing observations
+
+Phase 0 human visual observations may be used only as diagnostics.
+
+Do NOT hardcode them.
+
+Do NOT force the result to match them.
+
+In particular investigate but do not assume:
+
+* telecom 704.05 vs approximate visual 700.05
+* restaurant 8528 vs possible decimal/garbled alternative
+
+Only rerun these if document semantics or extraction structure actually indicates uncertainty.
+
+---
+
+## 8. Usage tracking
+
+All targeted verification calls must go through the existing ModelClient and UsageTracker.
+
+Report:
+
+* number of additional calls
+* tokens
+* cost
+* cache behavior
+* which image IDs required verification
+
+Prompt version the verification separately, e.g.:
+
+`IMAGE_VERIFICATION_PROMPT_VERSION = "v1"`
+
+---
+
+## 9. Tests
+
+Add tests for:
+
+* salary + net_pay → valid
+* grocery + net_pay → needs_review
+* grocery + grand_total → valid
+* taxi + cash_tendered → invalid/needs_review
+* taxi + fare_total → valid
+* bill + balance_due → valid
+* high VLM confidence does not override semantic mismatch
+* successful verification replaces/clarifies semantic interpretation
+* unresolved conflicting verification remains unresolved
+
+Use mocked model calls.
+
+Run the complete test suite afterward.
+
+---
+
+## 10. Completion report
+
+Report:
+
+### Semantic rules added
+
+### Results across all 16 extractions
+
+How many:
+
+* valid directly
+* required review
+* required second VLM verification
+* remain unresolved
+
+### Any corrected evidence
+
+Include old vs new semantic field and amount if changed.
+
+### Additional AI usage
+
+Calls, tokens, cost, cache.
+
+### Forecast readiness
+
+Confirm whether all forecast-critical image evidence is now semantically validated.
+
+### Tests
+
+Exact pytest summary.
+
+### Dataset integrity
+
+Confirm dataset unchanged.
+
+Do NOT implement safe amount.
+
+At the end write exactly:
+
+IMAGE EVIDENCE SANITY CHECK COMPLETE — WAITING FOR APPROVAL
+
+Then STOP.
+
+Agent Response Summary:
+Added a deterministic semantic-consistency validator and targeted verification path for image evidence. High VLM confidence cannot bypass family/field checks. Of 16 cached extractions, 15 were valid directly; image_03 (grocery + net_pay) needed one verification call, which kept amount 41272.0 and clarified the field to invoice net_amount. No unresolved items remain. Forecast-critical images were already valid and were not rerun. Safe-amount work was not started. Suite: 146 passed. Dataset unchanged.
+
+Actions:
+* Appended this log entry with tool=Cursor
+* Added evidence/semantic.py and evidence/review.py
+* Extended models, schemas, cache, pipeline, and diagnostics
+* Added tests/test_image_semantics.py
+* Ran targeted verification for image_03 only
+* Ran pytest: 146 passed
+* Confirmed dataset/ unchanged
+
+Context:
+tool=Cursor
+branch=main
+repo_root=/Users/sercangundogan/Projects/hackerrank-orchestrate-september26
+worktree=/Users/sercangundogan/Projects/hackerrank-orchestrate-september26
+parent_agent=none

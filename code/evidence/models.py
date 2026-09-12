@@ -57,6 +57,21 @@ class EvidenceConfidence(str, Enum):
     LOW = "low"
 
 
+class SemanticFamily(str, Enum):
+    SALARY = "salary"
+    RETAIL = "retail"
+    BILL = "bill"
+    FARE = "fare"
+    SERVICE = "service"
+    UNKNOWN = "unknown"
+
+
+class ValidationStatus(str, Enum):
+    VALID = "valid"
+    NEEDS_REVIEW = "needs_review"
+    INVALID = "invalid"
+
+
 @dataclass(frozen=True)
 class EvidenceFact:
     source_type: EvidenceSourceType
@@ -92,6 +107,35 @@ class ImageExtraction:
 
 
 @dataclass(frozen=True)
+class ImageValidation:
+    status: ValidationStatus
+    validation_reason: str
+    semantic_consistency: bool
+    extraction_confidence: EvidenceConfidence
+    family: SemanticFamily
+    selected_field: str | None
+
+
+@dataclass(frozen=True)
+class ImageVerification:
+    extraction: ImageExtraction
+    first_amount_correct: bool | None
+    supporting_text: str
+
+
+@dataclass(frozen=True)
+class ReviewedImageExtraction:
+    original: ImageExtraction
+    validation: ImageValidation
+    verification: ImageVerification | None = None
+    final_amount: Decimal | None = None
+    final_field: str | None = None
+    accepted: bool = False
+    unresolved_reason: str | None = None
+    candidates: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class EvidenceBundle:
     request_id: str
     user_id: str
@@ -100,3 +144,4 @@ class EvidenceBundle:
     llm_source_ids: tuple[str, ...]
     vlm_source_ids: tuple[str, ...]
     failures: tuple[str, ...]
+    image_reviews: tuple[ReviewedImageExtraction, ...] = ()

@@ -72,6 +72,31 @@ class EvidenceCache:
         }
         self._save()
 
+    def get_verification(self, key: str) -> tuple[ImageExtraction, bool | None, str] | None:
+        raw = self._data.get(key)
+        if raw is None or "image" not in raw:
+            return None
+        first_correct = raw.get("first_amount_correct")
+        if isinstance(first_correct, str):
+            first_correct = first_correct.strip().lower() in {"true", "1", "yes"}
+        supporting = str(raw.get("supporting_text") or "")
+        return _image_from_dict(raw["image"]), first_correct, supporting
+
+    def put_verification(
+        self,
+        key: str,
+        extraction: ImageExtraction,
+        *,
+        first_amount_correct: bool | None,
+        supporting_text: str,
+    ) -> None:
+        self._data[key] = {
+            "image": {field: _json_safe(value) for field, value in asdict(extraction).items()},
+            "first_amount_correct": first_amount_correct,
+            "supporting_text": supporting_text,
+        }
+        self._save()
+
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(self._data, indent=2, sort_keys=True), encoding="utf-8")

@@ -219,6 +219,19 @@ def format_evidence_diagnostics(bundle: EvidenceBundle) -> str:
                     f"  {item.image_id} {item.amount} {currency} "
                     f"{item.confidence.value} {item.selected_label or ''} — {item.rationale}"
                 )
+    if bundle.image_reviews:
+        lines.append("")
+        lines.append("Image reviews:")
+        for reviewed in bundle.image_reviews:
+            original = reviewed.original
+            status = reviewed.validation.status.value
+            accepted = "accepted" if reviewed.accepted else "unresolved"
+            lines.append(
+                f"  {original.image_id} {status} {accepted} "
+                f"field={reviewed.final_field or original.selected_label or '?'} "
+                f"amount={reviewed.final_amount if reviewed.accepted else original.amount} "
+                f"— {reviewed.validation.validation_reason}"
+            )
     if bundle.failures:
         lines.append("")
         lines.append("Failures:")

@@ -5,9 +5,10 @@ from __future__ import annotations
 from data.models import FinanceRequest
 from data.repository import DatasetRepository
 from evidence.cache import EvidenceCache
-from evidence.image_parser import image_to_fact, parse_image
+from evidence.image_parser import parse_image
 from evidence.message_parser import needs_llm, parse_message, extract_deterministic
-from evidence.models import EvidenceBundle, EvidenceFact, ImageExtraction
+from evidence.models import EvidenceBundle, EvidenceFact, ImageExtraction, ReviewedImageExtraction
+from evidence.review import review_image_extraction, reviewed_image_to_fact
 from evidence.resolver import resolve_financial_state
 from finance.models import NormalizedFinancialState
 from finance.normalization import normalize_financial_state
@@ -31,6 +32,7 @@ def extract_evidence(
     vlm_ids: list[str] = []
     failures: list[str] = []
     image_rows: list[ImageExtraction] = []
+    image_reviews: list[ReviewedImageExtraction] = []
 
     for message in messages:
         related = events_by_id.get(message.related_event_id) if message.related_event_id else None
@@ -61,12 +63,23 @@ def extract_evidence(
             cache=cache,
             tracker=tracker,
         )
+        reviewed = review_image_extraction(
+            image,
+            event,
+            request,
+            extraction,
+            client=client,
+            cache=cache,
+            tracker=tracker,
+        )
         image_rows.append(extraction)
+        image_reviews.append(reviewed)
         vlm_ids.append(image.image_id)
-        facts.append(image_to_fact(image, extraction))
-        if extraction.amount is None:
+        facts.append(reviewed_image_to_fact(image, reviewed))
+        if not reviewed.accepted:
             failures.append(
-                f"{image.image_id}: unresolved ({extraction.unresolved_reason or 'no amount'})"
+                f"{image.image_id}: unresolved "
+                f"({reviewed.unresolved_reason or extraction.unresolved_reason or 'no amount'})"
             )
 
     return EvidenceBundle(
@@ -77,6 +90,7 @@ def extract_evidence(
         llm_source_ids=tuple(llm_ids),
         vlm_source_ids=tuple(vlm_ids),
         failures=tuple(failures),
+        image_reviews=tuple(image_reviews),
     )
 
 
