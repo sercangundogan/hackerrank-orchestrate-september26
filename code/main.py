@@ -16,7 +16,9 @@ from data.validation import DatasetValidationError, validate_dataset
 from ai.client import ModelClient
 from evidence.cache import EvidenceCache
 from evidence.pipeline import extract_evidence, resolve_request_state
+from decision.capacity import compute_capacity
 from finance.diagnostics import (
+    format_capacity_diagnostics,
     format_evidence_diagnostics,
     format_financial_state_diagnostics,
     format_forecast_diagnostics,
@@ -48,6 +50,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--extract-evidence",
         action="store_true",
         help="Extract evidence for every evaluation and sample request. Does not write output.csv.",
+    )
+    parser.add_argument(
+        "--capacity",
+        action="store_true",
+        help="Print Phase 5A capacity diagnostics. Requires --debug-request. Does not write output.csv.",
     )
     return parser.parse_args(argv)
 
@@ -84,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.evidence and not args.debug_request and not args.extract_evidence:
         print("--evidence requires --debug-request REQUEST_ID", file=sys.stderr)
         return 2
+    if args.capacity and not args.debug_request:
+        print("--capacity requires --debug-request REQUEST_ID", file=sys.stderr)
+        return 2
 
     tracker = UsageTracker()
     cache = EvidenceCache()
@@ -109,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.debug_request:
         try:
             request = finance_request_by_id(repository, args.debug_request)
-            if args.evidence:
+            if args.evidence or args.capacity:
                 base, state, bundle = resolve_request_state(
                     repository, request, client=client, cache=cache, tracker=tracker
                 )
@@ -133,6 +143,16 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print()
             print(format_forecast_diagnostics(result))
+        if args.capacity:
+            try:
+                capacity = compute_capacity(
+                    state, request, ForecastConfig(strict_unresolved_amounts=True)
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"capacity failed: {exc}", file=sys.stderr)
+                return 1
+            print()
+            print(format_capacity_diagnostics(capacity))
     return 0
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from decision.models import CapacityResult
 from evidence.models import EvidenceBundle
 from finance.forecast_models import ForecastResult
 from finance.models import NormalizedFinancialState
@@ -239,4 +240,46 @@ def format_evidence_diagnostics(bundle: EvidenceBundle) -> str:
     if bundle.llm_source_ids:
         lines.append("")
         lines.append("LLM candidates: " + ", ".join(bundle.llm_source_ids))
+    return "\n".join(lines)
+
+
+def format_capacity_diagnostics(result: CapacityResult) -> str:
+    lines = [
+        f"Capacity for {result.request_id}",
+        "",
+        f"Requested amount: {result.requested_amount}",
+        f"Safe today: {result.amount_safe_to_pay}",
+        f"Full safe today: {'yes' if result.full_payment_safe_today else 'no'}",
+        (
+            f"Earliest full payment: {result.earliest_date_for_full_payment.isoformat()}"
+            if result.earliest_date_for_full_payment is not None
+            else "Earliest full payment: none"
+        ),
+        "",
+        "Limiting baseline point:",
+    ]
+    if result.limiting_date is not None:
+        lines.append(result.limiting_date.isoformat())
+        if result.limiting_event is not None:
+            lines.append(f"Event: {result.limiting_event.description}")
+        lines.append(f"Minimum required: {result.baseline.minimum_balance_to_keep}")
+    else:
+        lines.append("none")
+    lines.append(f"Projected baseline minimum: {result.baseline_minimum_balance}")
+    lines.append("")
+    lines.append(
+        f"Payment of {result.amount_safe_to_pay}: "
+        f"minimum observed = {result.safe_payment_forecast_minimum} → "
+        f"{'SAFE' if result.safe_today_forecast.is_safe else 'UNSAFE'}"
+    )
+    if result.unsafe_increment_minimum is not None:
+        bump = result.amount_safe_to_pay + result.quantum
+        lines.append(
+            f"Payment of {bump}: "
+            f"minimum observed = {result.unsafe_increment_minimum} → UNSAFE"
+        )
+    if result.unresolved_reasons:
+        lines.append("")
+        lines.append("Unresolved:")
+        lines.extend(f"  {item}" for item in result.unresolved_reasons)
     return "\n".join(lines)
