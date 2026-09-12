@@ -7,8 +7,8 @@ the repository-root `output.csv`. Development experiments in
 ## Run summary
 
 - total evaluation requests: 250
-- run timestamp (UTC): 2026-09-12T23:16:17Z
-- run id: `final-output-20260912T231613Z`
+- run timestamp (UTC): 2026-09-12T23:22:03Z
+- run id: `final-output-20260912T232200Z`
 - AI purposes recorded: image_amount_extract
 
 ## Pricing

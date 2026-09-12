@@ -1,0 +1,5 @@
+# Production runtime is Python 3.11+ standard library only.
+# No third-party packages are required to generate output.csv.
+#
+# Optional, for the development test suite (not included in this archive):
+# pytest==8.3.5

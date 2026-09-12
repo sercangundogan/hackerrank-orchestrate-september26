@@ -13,7 +13,23 @@ from pathlib import Path
 
 
 CODE_DIR = Path(__file__).resolve().parent
-REPO_ROOT = CODE_DIR.parent
+
+
+def _resolve_workspace_root(code_dir: Path) -> Path:
+    """Directory that contains `dataset/`.
+
+    Git and typical evaluator layout: `<root>/code/` plus `<root>/dataset/`.
+    Flattened zip extract: `config.py` sits next to `dataset/`.
+    """
+    parent = code_dir.parent
+    if (parent / "dataset" / "requests.csv").is_file():
+        return parent
+    if (code_dir / "dataset" / "requests.csv").is_file():
+        return code_dir
+    return parent
+
+
+REPO_ROOT = _resolve_workspace_root(CODE_DIR)
 
 
 def load_local_env() -> None:
