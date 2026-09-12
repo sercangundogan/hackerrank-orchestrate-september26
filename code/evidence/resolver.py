@@ -181,6 +181,8 @@ def _adjustments_from_facts(
                     effective_date=fact.effective_date or state.request_date,
                     source_ids=source,
                     notes=fact.notes,
+                    income_subtype="base_salary",
+                    category=fact.category or "salary",
                 )
             )
         elif fact.fact_type is FactType.TEMPORARY_SALARY_CHANGE:
@@ -195,6 +197,8 @@ def _adjustments_from_facts(
                     occurrences=1,
                     source_ids=source,
                     notes=fact.notes,
+                    income_subtype="base_salary",
+                    category=fact.category or "salary",
                 )
             )
         elif fact.fact_type is FactType.SALARY_PAYMENT_DATE_CHANGE and fact.effective_date:
@@ -204,6 +208,8 @@ def _adjustments_from_facts(
                     effective_date=fact.effective_date,
                     source_ids=source,
                     notes=fact.notes,
+                    income_subtype="base_salary",
+                    category=fact.category or "salary",
                 )
             )
         elif fact.fact_type is FactType.CONFIRMED_FUTURE_INCOME and fact.amount is not None:
@@ -223,6 +229,7 @@ def _adjustments_from_facts(
                     category=fact.category,
                     source_ids=source,
                     notes=fact.notes,
+                    income_subtype="base_salary" if fact.category == "salary" else None,
                 )
             )
         elif fact.fact_type is FactType.RECURRING_EXPENSE_CHANGE and fact.percent is not None:

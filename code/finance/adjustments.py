@@ -32,3 +32,5 @@ class ForecastAdjustment:
     category: str | None = None
     source_ids: tuple[str, ...] = ()
     notes: str = ""
+    income_subtype: str | None = None
+    target_description: str | None = None

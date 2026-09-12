@@ -35,6 +35,15 @@ from finance.models import (
     RecurringSeriesCandidate,
 )
 from finance.essential_spending import essential_spend_entries
+from finance.income import (
+    amendment_targets_series,
+    classify_income_text,
+    classify_series,
+    continue_start_salary,
+    is_base_payroll,
+    never_project_subtype,
+    salary_generation_allowed,
+)
 from finance.recurrence import normalize_description
 
 _ZERO = Decimal("0")
@@ -260,7 +269,14 @@ def _matches_series(event: NormalizedCashEvent, series: RecurringSeriesCandidate
     if event.direction is not series.direction:
         return False
     if _is_salary_series(series) and _is_salary_event(event):
-        return True
+        event_subtype = classify_income_text(event.description, event.category)
+        series_subtype = classify_series(series)
+        if never_project_subtype(event_subtype) or never_project_subtype(series_subtype):
+            return normalize_description(event.description) == series.normalized_description
+        if is_base_payroll(event_subtype) and is_base_payroll(series_subtype):
+            generic = "confirmed salary" in (event.description or "").lower()
+            return generic or normalize_description(event.description) == series.normalized_description
+        return normalize_description(event.description) == series.normalized_description
     if event.category != series.category:
         return False
     return normalize_description(event.description) == series.normalized_description
@@ -417,6 +433,12 @@ def _confirmed_credit_entries(
                 flexibility=event.flexibility,
                 category=event.category,
                 order_key=event.source_event_id,
+                confirmation_type="confirmed",
+                evidence_source_ids=(event.source_event_id,),
+                generated_from_history=False,
+                explicitly_scheduled=True,
+                message_confirmed=False,
+                income_subtype=classify_income_text(event.description, event.category).value,
             )
         )
     return entries
@@ -435,9 +457,13 @@ def _salary_amount_for_date(
     when: date,
     baseline: Decimal,
     salary_index: int,
+    series: RecurringSeriesCandidate,
 ) -> Decimal:
     amount = baseline
+    candidates = state.recurring_series_candidates
     for item in _adjustments(state):
+        if not amendment_targets_series(item, series, candidates=candidates):
+            continue
         if item.kind is ForecastAdjustmentKind.SALARY_AMOUNT and item.amount_home is not None:
             effective = item.effective_date or state.request_date
             if when >= effective:
@@ -454,6 +480,7 @@ def _adjustment_entries(
     horizon_start: date,
     horizon_end: date,
     existing: list[ForecastCashEvent],
+    config: ForecastConfig,
 ) -> list[ForecastCashEvent]:
     occupied_dates = {
         entry.date
@@ -474,7 +501,9 @@ def _adjustment_entries(
         if item.kind is ForecastAdjustmentKind.START_SALARY and item.effective_date in occupied_dates:
             continue
         dates = [item.effective_date]
-        if item.kind is ForecastAdjustmentKind.START_SALARY:
+        if item.kind is ForecastAdjustmentKind.START_SALARY and continue_start_salary(
+            config.salary_projection_mode
+        ):
             dates.extend(
                 iter_recurrence_dates(
                     last_observed=item.effective_date,
@@ -512,6 +541,18 @@ def _adjustment_entries(
                     description=f"evidence-confirmed credit ({item.notes})",
                     category=item.category or "income",
                     order_key=f"evidence:{','.join(item.source_ids)}:{when.isoformat()}",
+                    confirmation_type=(
+                        "continuation_supported"
+                        if when != item.effective_date
+                        else "confirmed"
+                    ),
+                    evidence_source_ids=item.source_ids,
+                    generated_from_history=False,
+                    explicitly_scheduled=False,
+                    message_confirmed=True,
+                    income_subtype=item.income_subtype or (
+                        "base_salary" if item.category == "salary" else "other"
+                    ),
                 )
             )
             occupied_dates.add(when)
@@ -528,28 +569,26 @@ def _generated_entries(
     message_flags: list[str],
 ) -> list[ForecastCashEvent]:
     entries: list[ForecastCashEvent] = []
-    stop_salary = _has_adjustment(state, ForecastAdjustmentKind.STOP_SALARY_PROJECTION)
     payday = next(
         (item for item in _adjustments(state) if item.kind is ForecastAdjustmentKind.SALARY_PAYDAY),
         None,
     )
-    salary_count = 0
+    salary_index_by_key: dict[str, int] = {}
     for series in state.recurring_series_candidates:
         is_salary = _is_salary_series(series)
-        if is_salary and stop_salary:
-            continue
         if is_salary:
-            eligible = _salary_history_eligible(series, config) or any(
-                item.kind in {
-                    ForecastAdjustmentKind.SALARY_AMOUNT,
-                    ForecastAdjustmentKind.START_SALARY,
-                    ForecastAdjustmentKind.SALARY_TEMPORARY,
-                    ForecastAdjustmentKind.SALARY_PAYDAY,
-                }
-                for item in _adjustments(state)
+            eligible, income_confidence, _reason = salary_generation_allowed(
+                series,
+                mode=config.salary_projection_mode,
+                adjustments=_adjustments(state),
+                candidates=state.recurring_series_candidates,
             )
+        elif series.direction is EventDirection.CREDIT:
+            eligible = False
+            income_confidence = None
         else:
             eligible = _eligible_for_auto_projection(series, config)
+            income_confidence = None
         if not eligible:
             continue
         if not series.observed_dates:
@@ -564,7 +603,14 @@ def _generated_entries(
         last_observed = max(series.observed_dates)
         pattern_day = last_observed.day
         cadence = series.inferred_cadence
-        if is_salary and payday is not None and payday.effective_date is not None:
+        if (
+            is_salary
+            and payday is not None
+            and payday.effective_date is not None
+            and amendment_targets_series(
+                payday, series, candidates=state.recurring_series_candidates
+            )
+        ):
             pattern_day = payday.effective_date.day
             last_observed = add_calendar_months(payday.effective_date, -1, pattern_day=pattern_day)
             cadence = Cadence.MONTHLY
@@ -583,6 +629,35 @@ def _generated_entries(
                 "projected from historical baseline only — no raise, cut, or "
                 "employment end was assumed"
             )
+        message_confirmed = is_salary and any(
+            amendment_targets_series(
+                item, series, candidates=state.recurring_series_candidates
+            )
+            for item in _adjustments(state)
+            if item.kind
+            in {
+                ForecastAdjustmentKind.SALARY_AMOUNT,
+                ForecastAdjustmentKind.SALARY_TEMPORARY,
+                ForecastAdjustmentKind.SALARY_PAYDAY,
+                ForecastAdjustmentKind.START_SALARY,
+            }
+        )
+        evidence_ids = tuple(
+            source
+            for item in _adjustments(state)
+            if amendment_targets_series(
+                item, series, candidates=state.recurring_series_candidates
+            )
+            for source in item.source_ids
+        )
+        if series.scheduled_confirmed_event_ids:
+            evidence_ids = series.scheduled_confirmed_event_ids + evidence_ids
+        confirmation_type = (
+            income_confidence.value if income_confidence is not None else ""
+        )
+        generated_from_history = is_salary and not message_confirmed and not bool(
+            series.scheduled_confirmed_event_ids
+        )
         provenance = RecurrenceProvenance(
             series_key=key,
             source_event_ids=series.event_ids,
@@ -591,6 +666,12 @@ def _generated_entries(
             amount_strategy=strategy_name,
             confidence=series.cadence_confidence,
             requires_message_confirmation=flagged,
+            confirmation_type=confirmation_type,
+            evidence_source_ids=evidence_ids,
+            generated_from_history=generated_from_history,
+            explicitly_scheduled=bool(series.scheduled_confirmed_event_ids),
+            message_confirmed=message_confirmed,
+            income_subtype=classify_series(series).value if is_salary else "",
         )
         for when in iter_recurrence_dates(
             last_observed=last_observed,
@@ -608,8 +689,12 @@ def _generated_entries(
                 continue
             projected = amount
             if is_salary:
-                projected = _salary_amount_for_date(state, when, amount, salary_count)
-                salary_count += 1
+                key_index = series_key(series)
+                salary_index = salary_index_by_key.get(key_index, 0)
+                projected = _salary_amount_for_date(
+                    state, when, amount, salary_index, series
+                )
+                salary_index_by_key[key_index] = salary_index + 1
                 kind = ForecastEventKind.GENERATED_RECURRING_CREDIT
                 priority = SameDayPriority.CONFIRMED_CREDIT
                 direction = EventDirection.CREDIT
@@ -653,6 +738,12 @@ def _generated_entries(
                     category=series.category,
                     requires_message_confirmation=flagged,
                     order_key=generated_id,
+                    confirmation_type=confirmation_type,
+                    evidence_source_ids=evidence_ids,
+                    generated_from_history=generated_from_history,
+                    explicitly_scheduled=bool(series.scheduled_confirmed_event_ids),
+                    message_confirmed=message_confirmed,
+                    income_subtype=classify_series(series).value if is_salary else "",
                 )
             )
     return entries
@@ -723,7 +814,8 @@ def _generated_summaries(entries: list[ForecastCashEvent]) -> tuple[str, ...]:
         )
         summaries.append(
             f"{sample.category or 'series'} {cadence} {confidence} "
-            f"n={len(group)} ({sample.description})"
+            f"n={len(group)} confirm={sample.confirmation_type or 'n/a'} "
+            f"subtype={sample.income_subtype or 'n/a'} ({sample.description})"
         )
     return tuple(summaries)
 
@@ -839,7 +931,7 @@ def forecast_financial_state(
             message_flags,
         )
     )
-    entries.extend(_adjustment_entries(state, horizon_start, horizon_end, entries))
+    entries.extend(_adjustment_entries(state, horizon_start, horizon_end, entries, config))
     entries.extend(essential_spend_entries(state, config, tuple(entries)))
 
     for candidate in candidate_payments:

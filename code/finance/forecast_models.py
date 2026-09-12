@@ -47,11 +47,16 @@ class EssentialSpendStrategy(str, Enum):
 class SalaryProjectionMode(str, Enum):
     """How future salary occurrences are chosen.
 
-    SCHEDULED_PLUS_REGULAR_HISTORY: apply every confirmed scheduled salary,
-    then generate later paydays only from HIGH/MEDIUM historical series.
-    Unresolved salary/employment messages are flagged, not interpreted.
+    STRICT_CONFIRMED: only explicit scheduled or message-confirmed dated income.
+    CONFIRMED_THEN_CONTINUE: one confirmed salary may continue strong base payroll.
+    STRONG_BASE_SALARY: HIGH-confidence base payroll may continue from history.
+    SCHEDULED_PLUS_REGULAR_HISTORY: legacy alias of STRONG_BASE_SALARY.
+    Commissions, bonuses, refunds, and windfalls never generate in any mode.
     """
 
+    STRICT_CONFIRMED = "strict_confirmed"
+    CONFIRMED_THEN_CONTINUE = "confirmed_then_continue"
+    STRONG_BASE_SALARY = "strong_base_salary"
     SCHEDULED_PLUS_REGULAR_HISTORY = "scheduled_plus_regular_history"
 
 
@@ -97,7 +102,7 @@ class ForecastConfig:
     strict_unresolved_amounts: bool = False
     recent_max_window: int = 3
     salary_projection_mode: SalaryProjectionMode = (
-        SalaryProjectionMode.SCHEDULED_PLUS_REGULAR_HISTORY
+        SalaryProjectionMode.STRONG_BASE_SALARY
     )
     essential_spend_enabled: bool = True
     essential_spend_strategy: EssentialSpendStrategy = EssentialSpendStrategy.DAILY_RATE
@@ -120,6 +125,12 @@ class RecurrenceProvenance:
     amount_strategy: str
     confidence: CadenceConfidence
     requires_message_confirmation: bool = False
+    confirmation_type: str = ""
+    evidence_source_ids: tuple[str, ...] = ()
+    generated_from_history: bool = False
+    explicitly_scheduled: bool = False
+    message_confirmed: bool = False
+    income_subtype: str = ""
 
 
 @dataclass(frozen=True)
@@ -143,6 +154,12 @@ class ForecastCashEvent:
     category: str | None = None
     requires_message_confirmation: bool = False
     order_key: str = ""
+    confirmation_type: str = ""
+    evidence_source_ids: tuple[str, ...] = ()
+    generated_from_history: bool = False
+    explicitly_scheduled: bool = False
+    message_confirmed: bool = False
+    income_subtype: str = ""
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ from decimal import Decimal
 from statistics import median
 
 from data.models import EventDirection, EventType, FinancialProfile, Flexibility
+from finance.income import classify_income_text, is_base_payroll
 from finance.models import (
     AmountBehavior,
     Cadence,
@@ -138,12 +139,31 @@ def build_recurring_series_candidates(
         # Also attach confirmed salary to the historical salary series even when
         # the scheduled description differs ("Next confirmed salary" vs "Payroll credit").
         if event.category == "salary":
-            for hist_key in grouped:
-                if hist_key[0] == "salary" and hist_key[2] is EventDirection.CREDIT:
-                    scheduled_by_key[hist_key].append(event)
+            event_subtype = classify_income_text(event.description, event.category)
+            matches = [
+                hist_key
+                for hist_key in grouped
+                if hist_key[0] == "salary" and hist_key[2] is EventDirection.CREDIT
+                and is_base_payroll(classify_income_text(hist_key[1], hist_key[0]))
+                and (
+                    is_base_payroll(event_subtype)
+                    or "confirmed salary" in (event.description or "").lower()
+                )
+            ]
+            # Attach a generic next-salary row to the single best base series only.
+            if len(matches) > 1 and "confirmed salary" in (event.description or "").lower():
+                matches = sorted(
+                    matches,
+                    key=lambda key: (
+                        0 if "payroll" in key[1] or "base" in key[1] or "primary" in key[1] else 1,
+                        -len(grouped[key]),
+                        key[1],
+                    ),
+                )[:1]
+            for hist_key in matches:
+                scheduled_by_key[hist_key].append(event)
 
     candidates: list[RecurringSeriesCandidate] = []
-    seen_salary = False
     for (category, normalized, direction), members in grouped.items():
         members = sorted(members, key=lambda item: (item.cash_date or item.event_date, item.source_event_id))
         dates = tuple((item.cash_date or item.event_date) for item in members)
@@ -155,15 +175,8 @@ def build_recurring_series_candidates(
             item.source_event_id
             for item in scheduled_by_key.get((category, normalized, direction), ())
         )
-        if category == "salary" and not scheduled:
-            scheduled = tuple(
-                item.source_event_id
-                for item in confirmed_scheduled_income
-                if item.category == "salary"
-            )
-            if seen_salary:
-                scheduled = ()
-            seen_salary = True
+        # Generic "next confirmed salary" is attached above to the single best
+        # base-payroll series only. Do not copy it onto every salary stream.
 
         flexibility = latest.flexibility
         likely = _likely_recurring(
