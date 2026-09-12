@@ -352,6 +352,97 @@ def builder_hist90_weekly(
     return entries
 
 
+def _first_income_date(
+    existing: tuple[ForecastCashEvent, ...],
+    request_date: date,
+) -> date | None:
+    dates = [entry.date for entry in existing if entry.signed_amount > 0 and entry.date >= request_date]
+    return min(dates) if dates else None
+
+
+def builder_frontload_prepayday(
+    state: NormalizedFinancialState,
+    config: ForecastConfig,
+    existing: tuple[ForecastCashEvent, ...],
+) -> list[ForecastCashEvent]:
+    """Put the pre-income share of the 90-day residual on request_date."""
+    horizon_end = config.horizon_end(state.request_date)
+    horizon_days = max(1, (horizon_end - state.request_date).days)
+    first_income = _first_income_date(existing, state.request_date)
+    window = (first_income - state.request_date).days if first_income else min(30, horizon_days)
+    window = max(1, window)
+    entries: list[ForecastCashEvent] = []
+    for category, inliers, explicit in _eligible_split_categories(state, config, existing):
+        total = sum((event.amount_home_currency or _ZERO for event in inliers), _ZERO)
+        expected = total * (Decimal(horizon_days) / Decimal(max(1, config.essential_lookback_days)))
+        residual = max(_ZERO, expected - explicit)
+        share = residual * Decimal(window) / Decimal(horizon_days)
+        later = residual - share
+        if share > _ZERO:
+            entries.append(_make_entry(category, state.request_date, share, "frontload_prepayday"))
+        dates: list[date] = []
+        cursor = state.request_date + timedelta(days=7)
+        while cursor <= horizon_end:
+            dates.append(cursor)
+            cursor += timedelta(days=7)
+        for when, amount in _allocate(dates, later):
+            entries.append(_make_entry(category, when, amount, "frontload_tail"))
+    return entries
+
+
+def builder_relative_payday(
+    state: NormalizedFinancialState,
+    config: ForecastConfig,
+    existing: tuple[ForecastCashEvent, ...],
+) -> list[ForecastCashEvent]:
+    """Place category residuals on historical relative-to-payday days."""
+    horizon_end = config.horizon_end(state.request_date)
+    first_income = _first_income_date(existing, state.request_date)
+    salaries = [
+        entry.date
+        for entry in existing
+        if entry.signed_amount > 0 and entry.category == "salary"
+    ]
+    if first_income is None:
+        return builder_hist90_weekly(state, config, existing)
+    entries: list[ForecastCashEvent] = []
+    for category, inliers, explicit in _eligible_split_categories(state, config, existing):
+        offsets: list[int] = []
+        hist_salaries = _salary_dates(state)
+        for event in inliers:
+            day = _day(event)
+            if day is None:
+                continue
+            nearby = [pay for pay in hist_salaries if abs((day - pay).days) <= 20]
+            if not nearby:
+                continue
+            pay = min(nearby, key=lambda item: abs((day - item).days))
+            offsets.append((day - pay).days)
+        if not offsets:
+            return_dates = [state.request_date + timedelta(days=7 * i) for i in range(13)]
+            return_dates = [item for item in return_dates if item <= horizon_end]
+        else:
+            typical = int(median(offsets))
+            return_dates = []
+            for payday in salaries or [first_income]:
+                when = payday + timedelta(days=typical)
+                if state.request_date <= when <= horizon_end:
+                    return_dates.append(when)
+            if not return_dates:
+                when = first_income + timedelta(days=typical)
+                if state.request_date <= when <= horizon_end:
+                    return_dates.append(when)
+                else:
+                    return_dates.append(state.request_date)
+        total = sum((event.amount_home_currency or _ZERO for event in inliers), _ZERO)
+        horizon_days = max(1, (horizon_end - state.request_date).days)
+        expected = total * (Decimal(horizon_days) / Decimal(max(1, config.essential_lookback_days)))
+        residual = max(_ZERO, expected - explicit)
+        for when, amount in _allocate(sorted(set(return_dates)), residual):
+            entries.append(_make_entry(category, when, amount, "relative_payday"))
+    return entries
+
+
 def builder_none(
     state: NormalizedFinancialState,
     config: ForecastConfig,
@@ -376,6 +467,8 @@ EXPERIMENTAL_BUILDERS: dict[
     "E_paycycle_avg": builder_paycycle("avg"),
     "E_paycycle_latest": builder_paycycle("latest"),
     "F_paycycle_max": builder_paycycle("max"),
+    "prepayday_frontload": builder_frontload_prepayday,
+    "relative_payday": builder_relative_payday,
 }
 
 

@@ -242,6 +242,28 @@ def test_employment_ended_stops_salary() -> None:
     assert _salary_credits(result) == []
 
 
+def test_latest_final_payroll_stops_sibling_base_salary() -> None:
+    payroll = _payroll_series()
+    final = _series(
+        category="salary",
+        normalized_description="final employer payroll",
+        original_description="Final employer payroll",
+        direction=EventDirection.CREDIT,
+        event_type=EventType.INCOME,
+        inferred_cadence=Cadence.UNKNOWN,
+        cadence_confidence=CadenceConfidence.LOW,
+        observed_dates=(date(2026, 2, 15),),
+        event_ids=("f1",),
+        representative_amount=Decimal("3000"),
+        observed_amounts_home_currency=(Decimal("3000"),),
+    )
+    result = forecast_financial_state(
+        _state(recurring_series_candidates=(payroll, final)),
+        ForecastConfig(salary_projection_mode=SalaryProjectionMode.STRONG_BASE_SALARY),
+    )
+    assert _salary_credits(result) == []
+
+
 def test_final_payroll_is_not_continued() -> None:
     series = _payroll_series(
         normalized_description="final employer payroll",

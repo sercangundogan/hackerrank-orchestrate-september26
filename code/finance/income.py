@@ -120,6 +120,25 @@ def employment_stopped(adjustments: tuple[ForecastAdjustment, ...]) -> bool:
     return any(item.kind is ForecastAdjustmentKind.STOP_SALARY_PROJECTION for item in adjustments)
 
 
+def latest_salary_is_final(
+    candidates: tuple[RecurringSeriesCandidate, ...],
+) -> bool:
+    """A later final-payroll event stops every salary stream, not just itself."""
+    latest_date = None
+    latest_subtype = None
+    for candidate in candidates:
+        if candidate.category != "salary" or not candidate.observed_dates:
+            continue
+        last = max(candidate.observed_dates)
+        subtype = classify_series(candidate)
+        if latest_date is None or last > latest_date:
+            latest_date = last
+            latest_subtype = subtype
+        elif last == latest_date and subtype is IncomeSubtype.FINAL_PAYROLL:
+            latest_subtype = subtype
+    return latest_subtype is IncomeSubtype.FINAL_PAYROLL
+
+
 def _notes_target_series(item: ForecastAdjustment, series: RecurringSeriesCandidate) -> bool:
     blob = " ".join((item.notes, item.target_description or "", item.category or "")).lower()
     if not blob.strip():
@@ -236,7 +255,7 @@ def salary_generation_allowed(
 ) -> tuple[bool, IncomeConfidence, str]:
     """Decide whether a salary-like series may generate future credits."""
     subtype = classify_series(series)
-    if employment_stopped(adjustments):
+    if employment_stopped(adjustments) or latest_salary_is_final(candidates):
         return False, IncomeConfidence.STOPPED, "employment_or_salary_stop"
     if never_project_subtype(subtype):
         return False, IncomeConfidence.UNCONFIRMED, f"unconfirmed_{subtype.value}"
