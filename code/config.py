@@ -7,12 +7,32 @@ decision rules.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 
 CODE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = CODE_DIR.parent
+
+
+def load_local_env() -> None:
+    """Load KEY=VALUE pairs from the repo `.env` into os.environ if unset.
+
+    Values are never printed. Existing environment variables win.
+    """
+    path = REPO_ROOT / ".env"
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key and key not in os.environ:
+            os.environ[key] = value
 DATASET_DIR = REPO_ROOT / "dataset"
 IMAGES_DIR = DATASET_DIR / "media" / "images"
 OUTPUT_CSV = REPO_ROOT / "output.csv"

@@ -11,7 +11,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from ai.schemas import IMAGE_AMOUNT_PROMPT_VERSION, MESSAGE_EXTRACTION_PROMPT_VERSION
+from config import load_local_env
 from usage.tracker import UsageTracker
+
+load_local_env()
 
 
 class ModelError(RuntimeError):
@@ -189,7 +192,7 @@ class ModelClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=120) as response:
                 raw = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             raise ModelError(f"http {exc.code}") from exc

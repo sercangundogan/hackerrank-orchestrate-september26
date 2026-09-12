@@ -74,6 +74,7 @@ def test_payslip_uses_net_pay_not_gross() -> None:
         {
             "amount": "4365000",
             "currency": "IDR",
+            "semantic_field_selected": "net_pay",
             "selected_label": "Net payable",
             "confidence": "high",
             "rationale": "payslip net pay, not gross earnings",
@@ -82,7 +83,7 @@ def test_payslip_uses_net_pay_not_gross() -> None:
         event,
     )
     assert extraction.amount == Decimal("4365000")
-    assert extraction.selected_label == "Net payable"
+    assert extraction.selected_label == "net_pay"
 
 
 def test_invoice_uses_balance_due() -> None:

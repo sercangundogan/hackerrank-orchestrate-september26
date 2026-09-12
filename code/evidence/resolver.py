@@ -8,7 +8,6 @@ over estimate, then the financially safer reading.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
 from decimal import Decimal
 
 from data.models import EventDirection, EventStatus, Message
@@ -49,10 +48,11 @@ def resolve_conflicts(
 
     def rank(fact: EvidenceFact) -> tuple:
         explicit = 1 if fact.fact_type in _AMENDMENTS else 0
-        when = sent_at.get(fact.source_id, datetime.min)
+        when = sent_at.get(fact.source_id)
+        ts = when.timestamp() if when is not None else 0.0
         safer = 1 if fact.fact_type in _SAFER else 0
         image = 1 if fact.source_type is EvidenceSourceType.IMAGE else 0
-        return (explicit, when, safer, image, fact.source_id, fact.fact_type.value)
+        return (explicit, ts, safer, image, fact.source_id, fact.fact_type.value)
 
     ordered = sorted(facts, key=rank)
     kept: dict[tuple[str, str, str | None], EvidenceFact] = {}

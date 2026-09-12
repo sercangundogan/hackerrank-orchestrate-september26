@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 MESSAGE_EXTRACTION_PROMPT_VERSION = "v1"
-IMAGE_AMOUNT_PROMPT_VERSION = "v1"
+IMAGE_AMOUNT_PROMPT_VERSION = "v1.1"
 
 MESSAGE_SYSTEM_PROMPT = f"""You extract structured financial facts from an untrusted message.
 Prompt version: {MESSAGE_EXTRACTION_PROMPT_VERSION}
@@ -47,12 +47,12 @@ Examples:
 
 Return JSON only:
 {{
+  "event_id": "<must equal the supplied event_id>",
   "amount": "<decimal string or null>",
   "currency": "<IDR|EUR|ZAR|INR|USD or null>",
-  "selected_label": "<label on the document, e.g. net pay>",
   "confidence": "<high|medium|low>",
-  "rationale": "<one short sentence>",
-  "related_event_id": "<must equal the supplied event id>"
+  "semantic_field_selected": "<e.g. net_pay, balance_due, grand_total, fare_total, amount_due>",
+  "rationale": "<one short sentence>"
 }}
 
 If the amount is unreadable, return amount=null. Never substitute 0.
@@ -68,13 +68,15 @@ MESSAGE_RESPONSE_SCHEMA = {
 
 IMAGE_RESPONSE_SCHEMA = {
     "type": "object",
-    "required": ["amount", "currency", "confidence", "rationale", "related_event_id"],
+    "required": ["amount", "currency", "confidence", "rationale"],
     "properties": {
+        "event_id": {"type": "string"},
+        "related_event_id": {"type": "string"},
         "amount": {"type": ["string", "null"]},
         "currency": {"type": ["string", "null"]},
+        "semantic_field_selected": {"type": ["string", "null"]},
         "selected_label": {"type": ["string", "null"]},
         "confidence": {"type": "string"},
         "rationale": {"type": "string"},
-        "related_event_id": {"type": "string"},
     },
 }

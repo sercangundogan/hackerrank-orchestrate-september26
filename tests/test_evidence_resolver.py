@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from data.models import (
@@ -151,6 +151,29 @@ def test_newer_same_source_fact_wins() -> None:
     salary = [fact for fact in resolved if fact.fact_type is FactType.SALARY_AMOUNT_CHANGE]
     assert len(salary) == 1
     assert salary[0].amount == Decimal("20")
+
+
+def test_conflict_rank_accepts_timezone_aware_messages() -> None:
+    image_fact = _fact(
+        source_type=EvidenceSourceType.IMAGE,
+        source_id="image_x",
+        fact_type=FactType.EVENT_AMOUNT,
+        related_event_id="event_blank",
+    )
+    message_fact = _fact(source_id="message_tz")
+    messages = (
+        Message(
+            "message_tz",
+            "user_test",
+            None,
+            None,
+            datetime(2026, 2, 1, tzinfo=timezone.utc),
+            MessageSourceType.EMPLOYER,
+            "aware",
+        ),
+    )
+    resolved = resolve_conflicts((image_fact, message_fact), messages=messages)
+    assert {fact.source_id for fact in resolved} == {"image_x", "message_tz"}
 
 
 def test_cancellation_and_safer_facts_are_kept() -> None:

@@ -26,35 +26,39 @@ from usage.tracker import UsageTracker
 
 
 def _user_prompt(image: ImageReference, event: FinancialEvent, request: FinanceRequest) -> str:
+    del image, request  # image is sent as bytes; request is not model context
     return (
-        f"image_id={image.image_id}\n"
-        f"related_event_id={event.event_id}\n"
+        f"event_id={event.event_id}\n"
         f"event_type={event.event_type.value}\n"
-        f"category={event.category}\n"
         f"description={event.description}\n"
+        f"category={event.category}\n"
         f"direction={event.direction.value}\n"
-        f"status={event.status.value}\n"
         f"currency={event.currency.value}\n"
-        f"request_id={request.request_id}\n"
-        f"request_date={request.request_date.isoformat()}\n"
-        "Extract only the amount that belongs to this event."
+        "Extract only the monetary amount represented by this financial event. "
+        "Do not evaluate affordability. Do not pick the largest number by default."
     )
 
 
 def _validate_image_payload(payload: dict, event: FinancialEvent) -> ImageExtraction:
-    related = payload.get("related_event_id")
+    related = payload.get("event_id") or payload.get("related_event_id")
     if related != event.event_id:
-        raise ValueError("model invented or mismatched related_event_id")
+        raise ValueError("model invented or mismatched event_id")
     amount_raw = payload.get("amount")
     amount = None
     if amount_raw not in (None, ""):
-        amount = Decimal(str(amount_raw))
+        normalized = str(amount_raw).replace(",", "").strip()
+        amount = Decimal(normalized)
         if amount < 0:
             raise ValueError("amount must be non-negative")
     currency_raw = payload.get("currency")
-    currency = Currency(currency_raw) if currency_raw else None
+    currency = Currency(str(currency_raw).upper()) if currency_raw else None
+    if currency is not None and currency is not event.currency:
+        raise ValueError(
+            f"currency {currency.value} is not compatible with event currency {event.currency.value}"
+        )
     confidence = EvidenceConfidence(payload.get("confidence", "low"))
     rationale = str(payload.get("rationale") or "")
+    selected = payload.get("semantic_field_selected") or payload.get("selected_label")
     if amount is None:
         return ImageExtraction(
             image_id="",
@@ -64,7 +68,7 @@ def _validate_image_payload(payload: dict, event: FinancialEvent) -> ImageExtrac
             confidence=confidence,
             extraction_method=ExtractionMethod.VLM,
             rationale=rationale,
-            selected_label=payload.get("selected_label"),
+            selected_label=selected,
             unresolved_reason=rationale or "amount unreadable",
         )
     return ImageExtraction(
@@ -75,7 +79,7 @@ def _validate_image_payload(payload: dict, event: FinancialEvent) -> ImageExtrac
         confidence=confidence,
         extraction_method=ExtractionMethod.VLM,
         rationale=rationale,
-        selected_label=payload.get("selected_label"),
+        selected_label=selected,
     )
 
 
