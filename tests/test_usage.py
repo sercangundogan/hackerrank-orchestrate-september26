@@ -13,6 +13,7 @@ from evidence.models import (
     FactType,
 )
 from usage.pricing import estimate_cost
+from usage.report import render_usage_report
 from usage.tracker import UsageTracker
 
 
@@ -103,3 +104,34 @@ def test_cache_hit_does_not_count_as_paid_call(tmp_path: Path) -> None:
     assert summary["cache_hits"] == 1
     assert summary["paid_calls"] == 0
     assert Decimal(str(summary["estimated_cost_usd"])) == Decimal("0")
+
+
+def test_usage_report_describes_zero_paid_final_run() -> None:
+    tracker = UsageTracker()
+    tracker.record(
+        provider="cache",
+        model="gpt-4o-mini",
+        purpose="image_amount_extract",
+        request_id="request_33",
+        user_id="user_33",
+        source_id="image_01",
+        prompt_version="v1",
+        input_tokens=0,
+        output_tokens=0,
+        cache_hit=True,
+        success=True,
+    )
+    markdown = render_usage_report(
+        tracker,
+        evaluation_requests=250,
+        run_id="test-run",
+        timestamp="2026-09-12T00:00:00Z",
+        zero_paid_requests=250,
+        cached_image_requests=1,
+        deterministic_message_requests=250,
+        new_model_call_requests=0,
+    )
+    assert "final output-producing run" in markdown
+    assert "zero paid model calls" in markdown
+    assert "did not perform a live official-pricing lookup" in markdown
+    assert "0.00000015" in markdown

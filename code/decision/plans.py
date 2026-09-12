@@ -41,10 +41,20 @@ def format_money(amount: Decimal) -> str:
     return f"{amount:.2f}"
 
 
+def format_output_amount(amount: Decimal) -> str:
+    """CSV amount: no scientific notation, no unnecessary trailing zeros."""
+    text = format(amount, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def format_payment_plan(payments: tuple[PlanPayment, ...]) -> str:
     if not payments:
         return "none"
-    return "|".join(f"{item.date.isoformat()}:{format_money(item.amount)}" for item in payments)
+    return "|".join(
+        f"{item.date.isoformat()}:{format_output_amount(item.amount)}" for item in payments
+    )
 
 
 def format_spending_changes(actions: tuple[SpendingAction, ...]) -> str:
@@ -55,7 +65,9 @@ def format_spending_changes(actions: tuple[SpendingAction, ...]) -> str:
         if action.kind.value == "stop":
             parts.append(f"stop:{action.event_id}")
         else:
-            parts.append(f"reduce_to:{action.event_id}:{format_money(action.new_amount or _ZERO)}")
+            parts.append(
+                f"reduce_to:{action.event_id}:{format_output_amount(action.new_amount or _ZERO)}"
+            )
     return "|".join(parts)
 
 

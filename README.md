@@ -35,13 +35,18 @@ Your solution must:
 - Generate one prediction for every request
 - Write the final predictions to `output.csv` in the repository root
 
-Run the starter Python entry point with:
+Create a virtualenv, install dependencies, then generate the root-level predictions:
 
 ```bash
-python3 code/main.py
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python3 code/main.py --generate-output
 ```
 
-After running your solution, confirm that `output.csv` exists in the repository root and contains the required columns and one row for every request.
+`--generate-output` writes repository-root `output.csv` (250 evaluation rows + header) and `code/evaluation/usage_report.md`. It does not modify `dataset/output.csv`.
+
+After running, confirm that `output.csv` exists in the repository root and contains the required columns and one row for every request.
 
 ## Important File Locations
 

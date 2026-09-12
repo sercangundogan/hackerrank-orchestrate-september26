@@ -615,7 +615,7 @@ def test_format_helpers() -> None:
                 PlanPayment(date=date(2026, 1, 15), amount=Decimal("10")),
             )
         )
-        == "2026-01-03:620.40|2026-01-15:10"
+        == "2026-01-03:620.4|2026-01-15:10"
     )
     assert format_spending_changes(()) == "none"
     action = SpendingAction(
@@ -627,7 +627,7 @@ def test_format_helpers() -> None:
         normal_amount=Decimal("40"),
         series_key="s",
     )
-    assert format_spending_changes((action,)) == "reduce_to:event_x:23.50"
+    assert format_spending_changes((action,)) == "reduce_to:event_x:23.5"
 
 
 def test_production_decision_code_quarantines_samples() -> None:

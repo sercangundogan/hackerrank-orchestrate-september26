@@ -83,6 +83,13 @@ class UsageTracker:
             for item in self.records:
                 handle.write(json.dumps(asdict(item), ensure_ascii=True) + "\n")
 
+    def persist_overwrite(self) -> None:
+        """Replace the ledger so a final-run file contains only this run."""
+        self.persist_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.persist_path.open("w", encoding="utf-8") as handle:
+            for item in self.records:
+                handle.write(json.dumps(asdict(item), ensure_ascii=True) + "\n")
+
     def summary(self) -> dict[str, object]:
         paid = [item for item in self.records if item.success and not item.cache_hit]
         total_in = sum(item.input_tokens for item in paid)

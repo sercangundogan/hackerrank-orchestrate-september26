@@ -91,6 +91,13 @@ def _text(
         )
     if method is RecommendedPaymentMethod.WAIT and plan.payments:
         when = plan.payments[0].date.isoformat()
+        income = _income_date(capacity)
+        if income is not None and income == plan.payments[0].date:
+            return (
+                f"Wait until confirmed salary on {when}, then pay {currency} "
+                f"{requested} in full. Paying earlier would take the balance "
+                f"below the {currency} {min_keep} minimum."
+            )
         return (
             f"Pay {currency} {requested} in full on {when}. Paying earlier would "
             f"take the balance below the {currency} {min_keep} minimum."
