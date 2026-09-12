@@ -26,6 +26,7 @@ from finance.forecast_models import (
     UnresolvedForecastError,
     VariableAmountStrategy,
 )
+from finance.adjustments import ForecastAdjustment, ForecastAdjustmentKind
 from finance.models import (
     Cadence,
     CadenceConfidence,
@@ -420,6 +421,102 @@ def _confirmed_credit_entries(
     return entries
 
 
+def _adjustments(state: NormalizedFinancialState) -> tuple[ForecastAdjustment, ...]:
+    return getattr(state, "forecast_adjustments", ()) or ()
+
+
+def _has_adjustment(state: NormalizedFinancialState, kind: ForecastAdjustmentKind) -> bool:
+    return any(item.kind is kind for item in _adjustments(state))
+
+
+def _salary_amount_for_date(
+    state: NormalizedFinancialState,
+    when: date,
+    baseline: Decimal,
+    salary_index: int,
+) -> Decimal:
+    amount = baseline
+    for item in _adjustments(state):
+        if item.kind is ForecastAdjustmentKind.SALARY_AMOUNT and item.amount_home is not None:
+            effective = item.effective_date or state.request_date
+            if when >= effective:
+                amount = item.amount_home
+        if item.kind is ForecastAdjustmentKind.SALARY_TEMPORARY and item.amount_home is not None:
+            allowed = item.occurrences if item.occurrences is not None else 1
+            if salary_index < allowed:
+                amount = item.amount_home
+    return amount
+
+
+def _adjustment_entries(
+    state: NormalizedFinancialState,
+    horizon_start: date,
+    horizon_end: date,
+    existing: list[ForecastCashEvent],
+) -> list[ForecastCashEvent]:
+    occupied_dates = {
+        entry.date
+        for entry in existing
+        if entry.category == "salary" and entry.direction is EventDirection.CREDIT
+    }
+    extras: list[ForecastCashEvent] = []
+    for item in _adjustments(state):
+        if item.kind not in {
+            ForecastAdjustmentKind.START_SALARY,
+            ForecastAdjustmentKind.CONFIRM_INCOME,
+        }:
+            continue
+        if item.amount_home is None or item.effective_date is None:
+            continue
+        if not _in_horizon(item.effective_date, horizon_start, horizon_end):
+            continue
+        if item.kind is ForecastAdjustmentKind.START_SALARY and item.effective_date in occupied_dates:
+            continue
+        dates = [item.effective_date]
+        if item.kind is ForecastAdjustmentKind.START_SALARY:
+            dates.extend(
+                iter_recurrence_dates(
+                    last_observed=item.effective_date,
+                    cadence=Cadence.MONTHLY,
+                    horizon_start=horizon_start,
+                    horizon_end=horizon_end,
+                    pattern_day=item.effective_date.day,
+                )
+            )
+        for when in dates:
+            if not _in_horizon(when, horizon_start, horizon_end):
+                continue
+            if when in occupied_dates and item.kind is ForecastAdjustmentKind.START_SALARY:
+                continue
+            extras.append(
+                ForecastCashEvent(
+                    date=when,
+                    amount_home_currency=item.amount_home,
+                    direction=EventDirection.CREDIT,
+                    signed_amount=_signed(EventDirection.CREDIT, item.amount_home),
+                    kind=(
+                        ForecastEventKind.GENERATED_RECURRING_CREDIT
+                        if when != item.effective_date
+                        else ForecastEventKind.CONFIRMED_CREDIT
+                    ),
+                    source=(
+                        ForecastEventSource.GENERATED_RECURRENCE
+                        if when != item.effective_date
+                        else ForecastEventSource.EXPLICIT_EVENT
+                    ),
+                    source_event_id=f"evidence:{','.join(item.source_ids)}:{when.isoformat()}",
+                    source_series_key=None,
+                    is_generated_recurrence=when != item.effective_date,
+                    priority=SameDayPriority.CONFIRMED_CREDIT,
+                    description=f"evidence-confirmed credit ({item.notes})",
+                    category=item.category or "income",
+                    order_key=f"evidence:{','.join(item.source_ids)}:{when.isoformat()}",
+                )
+            )
+            occupied_dates.add(when)
+    return extras
+
+
 def _generated_entries(
     state: NormalizedFinancialState,
     config: ForecastConfig,
@@ -430,10 +527,25 @@ def _generated_entries(
     message_flags: list[str],
 ) -> list[ForecastCashEvent]:
     entries: list[ForecastCashEvent] = []
+    stop_salary = _has_adjustment(state, ForecastAdjustmentKind.STOP_SALARY_PROJECTION)
+    payday = next(
+        (item for item in _adjustments(state) if item.kind is ForecastAdjustmentKind.SALARY_PAYDAY),
+        None,
+    )
+    salary_count = 0
     for series in state.recurring_series_candidates:
         is_salary = _is_salary_series(series)
+        if is_salary and stop_salary:
+            continue
         if is_salary:
-            eligible = _salary_history_eligible(series, config)
+            eligible = _salary_history_eligible(series, config) or any(
+                item.kind in {
+                    ForecastAdjustmentKind.SALARY_AMOUNT,
+                    ForecastAdjustmentKind.START_SALARY,
+                    ForecastAdjustmentKind.SALARY_TEMPORARY,
+                }
+                for item in _adjustments(state)
+            )
         else:
             eligible = _eligible_for_auto_projection(series, config)
         if not eligible:
@@ -449,6 +561,9 @@ def _generated_entries(
             continue
         last_observed = max(series.observed_dates)
         pattern_day = last_observed.day
+        if is_salary and payday is not None and payday.effective_date is not None:
+            pattern_day = payday.effective_date.day
+            last_observed = add_calendar_months(payday.effective_date, -1, pattern_day=pattern_day)
         key = series_key(series)
         if series.amount_behavior.value == "fixed" and series.representative_amount is not None:
             strategy_name = "fixed"
@@ -456,7 +571,7 @@ def _generated_entries(
             strategy_name = VariableAmountStrategy.LATEST.value
         else:
             strategy_name = config.variable_amount_strategy.value
-        flagged = series.requires_message_resolution
+        flagged = series.requires_message_resolution and not _adjustments(state)
         if flagged:
             message_flags.append(
                 f"{series.category} series {series.original_description!r} may be "
@@ -487,7 +602,10 @@ def _generated_entries(
                 occupied=occupied,
             ):
                 continue
+            projected = amount
             if is_salary:
+                projected = _salary_amount_for_date(state, when, amount, salary_count)
+                salary_count += 1
                 kind = ForecastEventKind.GENERATED_RECURRING_CREDIT
                 priority = SameDayPriority.CONFIRMED_CREDIT
                 direction = EventDirection.CREDIT
@@ -497,13 +615,25 @@ def _generated_entries(
                 priority = SameDayPriority.GENERATED_RECURRING_DEBIT
                 direction = EventDirection.DEBIT
                 label = "generated recurring debit"
+                for item in _adjustments(state):
+                    if item.kind is not ForecastAdjustmentKind.RENT_PERCENT:
+                        continue
+                    if (item.category or "rent") != series.category:
+                        continue
+                    if item.percent is None:
+                        continue
+                    effective = item.effective_date or state.request_date
+                    if when >= effective:
+                        projected = (projected * (Decimal("1") + item.percent / Decimal("100"))).quantize(
+                            Decimal("0.01")
+                        )
             generated_id = f"generated:{key}:{when.isoformat()}"
             entries.append(
                 ForecastCashEvent(
                     date=when,
-                    amount_home_currency=amount,
+                    amount_home_currency=projected,
                     direction=direction,
-                    signed_amount=_signed(direction, amount),
+                    signed_amount=_signed(direction, projected),
                     kind=kind,
                     source=ForecastEventSource.GENERATED_RECURRENCE,
                     source_event_id=generated_id,
@@ -705,6 +835,7 @@ def forecast_financial_state(
             message_flags,
         )
     )
+    entries.extend(_adjustment_entries(state, horizon_start, horizon_end, entries))
 
     for candidate in candidate_payments:
         if candidate.priority is not SameDayPriority.CANDIDATE_PAYMENT:
@@ -718,6 +849,7 @@ def forecast_financial_state(
         state.requires_message_resolution
         and any(_is_salary_series(series) for series in state.recurring_series_candidates)
         and not message_flags
+        and not _adjustments(state)
     ):
         message_flags.append(
             "unread messages exist for this user; salary continuation was not "

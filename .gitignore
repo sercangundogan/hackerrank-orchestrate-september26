@@ -8,3 +8,5 @@ __pycache__/
 output.csv
 code.zip
 log.txt
+evaluation/cache/
+evaluation/usage.jsonl

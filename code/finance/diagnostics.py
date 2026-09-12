@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from evidence.models import EvidenceBundle
 from finance.forecast_models import ForecastResult
 from finance.models import NormalizedFinancialState
 
@@ -188,4 +189,41 @@ def format_forecast_diagnostics(result: ForecastResult) -> str:
         lines.append("")
         lines.append("Message uncertainty (not interpreted):")
         lines.extend(f"  {item}" for item in result.message_uncertainty_flags)
+    return "\n".join(lines)
+
+
+def format_evidence_diagnostics(bundle: EvidenceBundle) -> str:
+    lines = [
+        f"Evidence for {bundle.request_id}",
+        f"Facts: {len(bundle.facts)}",
+        "",
+    ]
+    for fact in bundle.facts:
+        amount = f" {fact.amount} {fact.currency.value}" if fact.amount is not None and fact.currency else ""
+        when = f" on {fact.effective_date.isoformat()}" if fact.effective_date else ""
+        lines.append(
+            f"{fact.source_id} {fact.fact_type.value}{amount}{when} "
+            f"[{fact.extraction_method.value}/{fact.confidence.value}] {fact.notes}"
+        )
+    if bundle.image_extractions:
+        lines.append("")
+        lines.append("Images:")
+        for item in bundle.image_extractions:
+            if item.amount is None:
+                lines.append(
+                    f"  {item.image_id} unresolved ({item.unresolved_reason or item.rationale})"
+                )
+            else:
+                currency = item.currency.value if item.currency else "?"
+                lines.append(
+                    f"  {item.image_id} {item.amount} {currency} "
+                    f"{item.confidence.value} {item.selected_label or ''} — {item.rationale}"
+                )
+    if bundle.failures:
+        lines.append("")
+        lines.append("Failures:")
+        lines.extend(f"  {item}" for item in bundle.failures)
+    if bundle.llm_source_ids:
+        lines.append("")
+        lines.append("LLM candidates: " + ", ".join(bundle.llm_source_ids))
     return "\n".join(lines)

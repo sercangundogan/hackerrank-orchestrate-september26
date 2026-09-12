@@ -19,6 +19,7 @@ from data.models import (
     FinancialProfile,
     Flexibility,
 )
+from finance.adjustments import ForecastAdjustment
 
 
 class LifecycleType(str, Enum):
@@ -176,6 +177,8 @@ class NormalizedFinancialState:
     requires_message_resolution: bool
     user_message_ids: tuple[str, ...]
     user_image_ids: tuple[str, ...]
+    forecast_adjustments: tuple[ForecastAdjustment, ...] = ()
+    evidence_source_ids: tuple[str, ...] = ()
 
     def prospective_cash_events(self) -> tuple[NormalizedCashEvent, ...]:
         return tuple(
