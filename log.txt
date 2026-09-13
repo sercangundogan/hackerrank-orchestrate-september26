@@ -852,3 +852,36 @@ branch=main
 repo_root=/Users/sercangundogan/Projects/hackerrank-orchestrate-september26
 worktree=/Users/sercangundogan/Projects/hackerrank-orchestrate-september26
 parent_agent=none
+
+## [2026-09-13T00:09:40Z] SESSION START
+
+tool=Cursor
+Repo Root: /Users/sercangundogan/Projects/hackerrank-orchestrate-september26
+Branch: main
+Worktree: /Users/sercangundogan/Projects/hackerrank-orchestrate-september26
+Parent Agent: none
+Language: py
+Time Remaining: 0d 12h 20m
+
+## [2026-09-13T00:10:11Z] Submission-only README and usage-report wording patch
+
+User Prompt (verbatim, secrets redacted):
+Do a final submission-only patch. Do not change any financial, forecasting, recurrence, capacity, ranking, spending-optimizer, evidence, or prediction logic. Update README cold-run API key wording; update evaluation/usage_report.md wording only without changing token/cost totals; run pytest; regenerate output.csv and confirm byte-identical; rebuild code.zip; re-run secret and archive audits.
+
+Agent Response Summary:
+Patched code/README.md to document that a cache-less cold run needs OPENAI_API_KEY or BUYORWAIT_API_KEY and fails rather than zeroing blank image amounts. Reworded code/evaluation/usage_report.md so 250 no longer implies every request had a message, and so the 11 image accesses are described as cache hits. Token and cost totals were left unchanged. pytest 234 passed. Regenerated output.csv was byte-identical. Rebuilt code.zip (51 files). Secret scan found no credential values. Archive contains no .env, cache, or nested code/.
+
+Actions:
+* Edited code/README.md and code/evaluation/usage_report.md
+* Ran pytest: 234 passed
+* Regenerated output.csv via code/main.py --generate-output; SHA-256 matched accepted file
+* Restored wording-only usage_report.md after generate overwrite
+* Rebuilt code.zip from code/ (51 files)
+* Secret and archive audits: PASS
+
+Context:
+tool=Cursor
+branch=main
+repo_root=/Users/sercangundogan/Projects/hackerrank-orchestrate-september26
+worktree=/Users/sercangundogan/Projects/hackerrank-orchestrate-september26
+parent_agent=none

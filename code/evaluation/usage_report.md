@@ -46,11 +46,14 @@ This environment did not perform a live official-pricing lookup for the final ru
 ## Selective-AI summary
 
 - requests with zero paid model calls during the final run: 250
-- requests that used cached image evidence: 11
-- requests resolved with deterministic message parsing only: 250
+- image accesses during the final run: 11 cache hits, 0 paid vision calls
+- evaluation requests that required a paid text-model message parse: 0
 - requests that triggered a new paid model call: 0
 
 The final output-producing run made **zero paid model calls**.
-All image evidence came from the existing cache; messages were parsed
-deterministically. Cache hits are recorded with zero tokens and zero cost.
+The 11 recorded image accesses were cache hits against the existing validated
+evidence cache; no paid vision calls were made. Message evidence that appeared
+for a request was parsed deterministically. That does not mean every evaluation
+request contained a message. Cache hits are recorded with zero tokens and zero
+cost.
 
